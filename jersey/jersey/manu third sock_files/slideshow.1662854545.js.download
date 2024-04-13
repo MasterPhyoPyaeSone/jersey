@@ -1,0 +1,423 @@
+var slideshow = new Vue({
+  el: "#app",
+  data() {
+    return {
+      zoomFactor: 2.5,
+      images: null,
+      count: 0,
+      currentIndex: 0,
+      realIndex: 0,
+      open: false,
+      isZoom: false,
+      posX: 0,
+      posY: 0,
+      maxX: 0,
+      maxY: 0,
+      windowWidth: window.innerWidth,
+      windowHeight: window.innerHeight,
+      aspect: 1,
+      isTouchMoving: false,
+      touchStartX: 0,
+      touchStartY: 0,
+      showAd: false,
+      touchX: 0,
+      touchY: 0,
+      aspectRatios: null,
+      transitionEnabled: true,
+      isMoving: false,
+      isMovingY: false,
+      diff: 0,
+      diffY: 0,
+    };
+  },
+  computed: {
+    slideshowStyle() {
+      return null;
+      return this.isZoom
+        ? {
+            cursor: "zoom-out",
+          }
+        : {
+            cursor: "zoom-in",
+          };
+    },
+    slideshowOuterStyle() {
+      if (this.isMovingY) {
+        return { transform: `translate3D(0px, ${this.diffY}px, 0px)` };
+      } else {
+        return null;
+      }
+    },
+    containerStyle() {
+      return {
+        // transform: `scale(${this.zoomFactor}) translate3D(${this.posX}px, ${this.posY}px, 0px)`,
+        transition: this.transitionEnabled ? "transform 200ms ease-in-out" : "",
+        transform: `translate3D(${-1 * (this.realIndex + 1) * this.windowWidth + this.diff}px, ${this.diffY}px, 0px)`,
+        cursor: this.isMoving ? "grabbing" : "",
+      };
+
+      return this.isZoom
+        ? {
+            // transform: `scale(${this.zoomFactor}) translate3D(${this.posX}px, ${this.posY}px, 0px)`,
+            transition: this.transitionEnabled ? "transform 200ms ease-in-out" : "",
+            transform: `translate3D(${-1 * (this.realIndex + 1) * this.windowWidth + this.diff}px, 0px, 0px)`,
+          }
+        : {
+            transition: this.transitionEnabled ? "transform 200ms ease-in-out" : "",
+            transform: `translate3D(${-1 * (this.realIndex + 1) * this.windowWidth + this.diff}px, 0px, 0px)`,
+          };
+    },
+    imageContainerStyle() {
+      return this.images.map((_, index) => {
+        let style = {
+          width: this.windowWidth + "px",
+          height: this.windowHeight + "px",
+          pointerEvents: this.isMoving ? "none" : "",
+          // cursor: this.isZoom ? "zoom-out" : "zoom-in",
+        };
+        if (this.isZoom && this.currentIndex + 1 == index) {
+          style.transform = `scale(${this.zoomFactor}) translate3D(${this.posX}px, ${this.posY}px, 0px)`;
+        }
+        return style;
+      });
+    },
+    imageStyle() {
+      if (!this.aspectRatios) return [];
+
+      return this.aspectRatios.map((aspect) => {
+        return {
+          width: this.windowWidth / this.windowHeight < aspect ? "100%" : "auto",
+          height: this.windowWidth / this.windowHeight < aspect ? "auto" : "100%",
+          cursor: this.isZoom ? "zoom-out" : "zoom-in",
+        };
+      });
+      // return {
+      //   width: "100%",
+      //   height: "100%",
+      // };
+      return {
+        width: this.windowWidth / this.windowHeight < this.aspect ? "100%" : "auto",
+        height: this.windowWidth / this.windowHeight < this.aspect ? "auto" : "100%",
+        cursor: this.isZoom ? "zoom-out" : "zoom-in",
+      };
+    },
+    clicktrapStyle() {
+      return {
+        cursor: this.isZoom ? "zoom-out" : "zoom-in",
+      };
+    },
+    currentTitle() {
+      if (!this.images || !this.images[this.currentIndex + 1]) return "";
+      return this.images[this.currentIndex + 1]?.title;
+    },
+    // aspectRatios() {
+    //   return
+    // },
+  },
+  methods: {
+    resetPos() {
+      this.posX = 0;
+      this.posY = 0;
+      this.aspect = this.$refs.images[this.currentIndex].clientWidth / this.$refs.images[this.currentIndex].clientHeight;
+    },
+    change(diff) {
+      if (this.locked) return;
+
+      this.locked = true;
+      this.transitionEnabled = true;
+      let newIndex = this.currentIndex + diff;
+      this.realIndex = newIndex;
+      if (newIndex < 0) newIndex = this.count - 1;
+      if (newIndex > this.count - 1) newIndex = 0;
+      this.currentIndex = newIndex;
+    },
+    previous() {
+      this.change(-1);
+      return;
+      if (this.currentIndex > 0) {
+        this.currentIndex -= 1;
+      } else {
+        this.currentIndex = this.images.length - 1;
+      }
+
+      Vue.nextTick(() => {
+        this.resetPos();
+      });
+    },
+    next() {
+      this.change(1);
+      return;
+      if (this.currentIndex < this.images.length - 1) {
+        this.currentIndex += 1;
+      } else {
+        this.currentIndex = 0;
+      }
+
+      Vue.nextTick(() => {
+        this.resetPos();
+      });
+    },
+    onKeyDown(e) {
+      switch (e.key) {
+        case "ArrowRight":
+          if (!this.isZoom) this.next();
+          break;
+        case "ArrowLeft":
+          if (!this.isZoom) this.previous();
+          break;
+        case "Escape":
+          if (this.isZoom) {
+            this.isZoom = false;
+          } else {
+            this.open = false;
+          }
+      }
+    },
+    getMax() {
+      const containerSize = [this.$refs.slideshow.clientWidth, this.$refs.slideshow.clientHeight];
+      const imageSize = [this.$refs.images[this.currentIndex + 1].clientWidth * this.zoomFactor, this.$refs.images[this.currentIndex + 1].clientHeight * this.zoomFactor];
+
+      this.maxX = Math.max(0, Math.floor(imageSize[0] / 2 - containerSize[0] / 2));
+      this.maxY = Math.max(0, Math.floor(imageSize[1] / 2 - containerSize[1] / 2));
+    },
+    setPos(x, y) {
+      //   console.log(e.target);
+
+      //   const [x, y] = [(e.clientX / e.target.clientWidth) * 2 - 1, (e.clientY / e.target.clientHeight) * 2 - 1];
+      //   console.log({ clientX: e.clientX, targetClientX: e.target.clientWidth });
+
+      // console.log({ x, y });
+
+      x = x * 2 - 1;
+      y = y * 2 - 1;
+
+      this.posX = (-x * this.maxX) / this.zoomFactor;
+      this.posY = (-y * this.maxY) / this.zoomFactor;
+      //   console.log({ x, y });
+
+      //   console.log(this.max);
+
+      //   console.log(e);},
+    },
+    toggleZoom(e) {
+      if (e?.target === this.$refs.imageContainer) {
+        this.open = false;
+        return;
+      }
+
+      this.isZoom = !this.isZoom;
+
+      if (this.isZoom) {
+        this.getMax();
+
+        this.setPos(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
+
+        // touch
+        this.$refs.clicktrap.addEventListener("touchstart", this.handleTouchStart, { passive: true });
+        this.$refs.clicktrap.addEventListener("touchend", this.handleTouchEnd);
+        this.$refs.clicktrap.addEventListener("touchmove", this.handleTouchMove, { passive: true });
+        this.$refs.clicktrap.addEventListener("touchcancel", this.handleTouchCancel);
+      } else {
+        this.$refs.clicktrap.removeEventListener("touchstart", this.handleTouchStart, { passive: true });
+        this.$refs.clicktrap.removeEventListener("touchend", this.handleTouchEnd);
+        this.$refs.clicktrap.removeEventListener("touchmove", this.handleTouchMove, { passive: true });
+        this.$refs.clicktrap.removeEventListener("touchcancel", this.handleTouchCancel);
+      }
+    },
+    handleMouseover(e) {
+      if (!this.isZoom) return;
+      //   return;
+
+      this.setPos(e.clientX / e.target.clientWidth, e.clientY / e.target.clientHeight);
+    },
+    handleTouchStart(e) {
+      var touch = e.touches[0] ?? null;
+      if (!touch) return;
+
+      this.touchStartX = touch.pageX;
+      this.touchStartY = touch.pageY;
+      this.posXPrev = this.posX;
+      this.posYPrev = this.posY;
+    },
+    handleTouchMove(e) {
+      var touch = e.touches[0] ?? null;
+      if (!touch) return;
+
+      var posX = Math.min(this.maxX / this.zoomFactor, Math.max(-this.maxX / this.zoomFactor, this.posXPrev - (this.touchStartX - touch.pageX) / this.zoomFactor));
+      var posY = Math.min(this.maxY / this.zoomFactor, Math.max(-this.maxY / this.zoomFactor, this.posYPrev - (this.touchStartY - touch.pageY) / this.zoomFactor));
+
+      if (this.touchStartX - touch.pageX !== 0 || this.touchStartY - touch.pageY !== 0) {
+        this.isTouchMoving = true;
+      }
+
+      this.posX = posX;
+      this.posY = posY;
+    },
+    handleTouchEnd() {
+      if (!this.isTouchMoving) {
+        // this.toggleZoom();
+      }
+      this.isTouchMoving = false;
+    },
+    handleTouchCancel() {
+      this.isTouchMoving = false;
+    },
+    handleMouseDown(e) {
+      if (this.isZoom || this.count < 2) return;
+
+      this.touchStartX = e.pageX;
+      this.touchStartY = e.clientY;
+
+      this.transitionEnabled = false;
+
+      document.addEventListener("mousemove", this.handleMouseMove);
+      document.addEventListener("mouseup", this.handleMouseUp);
+    },
+    handleMouseMove(e) {
+      if (!this.touchStartX) return;
+
+      e.preventDefault();
+      this.touchX = e.pageX;
+      this.touchY = e.clientY;
+      this.diff = this.touchX - this.touchStartX;
+
+      if (Math.abs(this.diff) > 5) {
+        this.isMoving = true;
+      }
+    },
+    handleMouseUp(e) {
+      e.preventDefault();
+
+      this.transitionEnabled = true;
+
+      const diffY = Math.abs(this.touchY - this.touchStartY);
+
+      if (diffY < Math.abs(this.diff)) {
+        if (this.diff > 5) {
+          this.previous();
+        } else if (this.diff < -5) {
+          this.next();
+        }
+      }
+      this.diff = 0;
+      this.touchStartX = null;
+      this.touchStartY = null;
+      this.isMoving = false;
+
+      document.removeEventListener("mousemove", this.handleMouseMove);
+      document.removeEventListener("mouseup", this.handleMouseUp);
+    },
+    handleMainTouchStart(e) {
+      if (this.isZoom || this.count < 2) return;
+
+      this.touchStartX = e.touches[0].pageX;
+      this.touchStartY = e.touches[0].clientY;
+
+      this.transitionEnabled = false;
+
+      document.addEventListener("touchmove", this.handleMainTouchMove, { passive: true });
+      document.addEventListener("touchend", this.handleMainTouchEnd);
+    },
+    handleMainTouchMove(e) {
+      if (!this.touchStartX) return;
+
+      this.touchX = e.touches[0].pageX;
+      this.touchY = e.touches[0].clientY;
+
+      const diffX = this.touchX - this.touchStartX;
+      const diffY = this.touchY - this.touchStartY;
+      // this.diff = this.touchX - this.touchStartX;
+      // this.diffY = this.touchY - this.touchStartY;
+
+      if (!this.isMoving && !this.isMovingY) {
+        if (Math.abs(diffX) > 5) {
+          this.isMoving = true;
+        } else if (Math.abs(diffY) > 5) {
+          this.isMovingY = true;
+        }
+      }
+
+      if (this.isMoving) {
+        this.diff = diffX;
+      } else if (this.isMovingY) {
+        this.diffY = diffY;
+      }
+    },
+    handleMainTouchEnd() {
+      this.transitionEnabled = true;
+
+      const diffY = Math.abs(this.touchY - this.touchStartY);
+
+      if (diffY < Math.abs(this.diff)) {
+        if (this.diff > 20) {
+          this.previous();
+        } else if (this.diff < -20) {
+          this.next();
+        }
+      } else if (this.isMovingY && Math.abs(this.diffY) > 20) {
+        this.open = false;
+      }
+      this.diff = 0;
+      this.diffY = 0;
+      this.touchStartX = null;
+      this.touchStartY = null;
+      this.isMoving = false;
+      this.isMovingY = false;
+
+      document.removeEventListener("touchmove", this.handleMainTouchMove);
+      document.removeEventListener("touchend", this.handleMainTouchEnd);
+    },
+    handleTransitionEnd() {
+      this.transitionEnabled = false;
+      let index = this.realIndex;
+      if (index < 0) index = this.count - 1;
+      if (index > this.count - 1) index = 0;
+      setTimeout(() => {
+        this.realIndex = index;
+        this.locked = false;
+      }, 50);
+    },
+    setImages(images) {
+      this.count = images.length;
+
+      images.unshift(images[images.length - 1]);
+      images.push(images[1]);
+
+      this.images = images;
+    },
+  },
+  watch: {
+    open(val) {
+      if (!this.aspectRatios) {
+        this.aspectRatios = this.$refs.images.map((image) => {
+          // console.log(image.clientWidth, image.clientHeight);
+          return image.width / image.height;
+        });
+      }
+      if (val) {
+        // is opening
+        document.body.addEventListener("keydown", this.onKeyDown);
+        document.body.style.overflow = "hidden";
+        Vue.nextTick(() => {
+          this.resetPos();
+        });
+      } else {
+        document.body.style.overflow = "";
+        document.body.removeEventListener("keydown", this.onKeyDown);
+      }
+    },
+  },
+  mounted() {
+    if (this.open) {
+      document.body.addEventListener("keydown", this.onKeyDown);
+    }
+    window.addEventListener("resize", () => {
+      // this.windowWidth = document.body.scrollWidth;
+      this.windowWidth = window.innerWidth;
+      this.windowHeight = window.innerHeight;
+    });
+    this.$refs.imageContainer.addEventListener("mousedown", this.handleMouseDown, { passive: true });
+    this.$refs.imageContainer.addEventListener("touchstart", this.handleMainTouchStart, { passive: true });
+    this.$refs.imageContainer.addEventListener("transitionend", this.handleTransitionEnd);
+  },
+});

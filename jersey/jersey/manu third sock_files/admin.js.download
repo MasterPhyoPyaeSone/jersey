@@ -1,0 +1,194 @@
+$("#faux-upload-image").click(function() {
+	$("#upload-image").trigger("click");
+});
+
+$("#edit-kit").submit(function(event) {
+	event.preventDefault();
+
+	// $.post('server.php', $('#theForm').serialize());
+
+	// var media = "";
+
+	//
+	var src = $("#image-container .edit-image.selected").attr("src");
+	if (src !== undefined) {
+		if (src.startsWith("data:image")) {
+			$("input[name=media]").val(src);
+		}
+	}
+
+	// return true;
+
+	// console.log($(this).serialize());
+
+	$.post("", $(this).serialize()).done(function(data) {
+		console.log(data);
+		if (data.success) {
+			// success
+			if (data.method == "edit") {
+				if (confirm("Successfully edited kit.\nReturn to kit page?")) {
+					window.location.href = data.url;
+				}
+			} else {
+				alert("Successfully added kit.");
+			}
+		} else {
+			// failure
+			alert(data.error);
+			console.log(data);
+		}
+	}, "json");
+});
+
+// upload image
+$("#upload-image").change(function() {
+	// var img = document.createElement("img");
+	var reader = new FileReader();
+	var data = new FormData();
+
+	data.append("method", "cropfromupload");
+	data.append("image[]", $("#upload-image").prop("files")[0]);
+
+	/* post to database */
+	$.ajax({
+		url: "",
+		type: "POST",
+		data: data,
+		cache: false,
+		dataType: "json",
+		processData: false, // Don't process the files
+		contentType: false, // Set content type to false as jQuery will tell the server its a query string request
+		success: function(data, textStatus, jqXHR) {
+			var obj = data; //$.parseJSON( data );
+			console.log(obj);
+
+			if (obj.success) {
+				var new_id = obj.id;
+				var newHtml = '<img class="edit-image selected" src="' + data.image + '">';
+				$(".edit-image").removeClass("selected");
+				$("#image-container").append(newHtml);
+				$("input[name=kitimage").val("");
+			} else {
+				// failure
+				alert(data.error);
+			}
+		},
+		error: function(jqXHR, textStatus, errorThrown) {
+			console.log(jqXHR);
+			// Handle errors here
+			alert("ERRORS: " + textStatus);
+			// STOP LOADING SPINNER
+		}
+	});
+
+	/*
+	if ($("#tweet-image").prop("files").length > 0) {
+		var max = ($("#tweet-image").prop("files").length < 4) ? $("#tweet-image").prop("files").length : 4;
+		for (var i = 0; i < max; i++) {
+			data.append("image[]", $("#tweet-image").prop("files")[i]);
+		}
+	}
+	*/
+
+	/*
+	reader.onload = function(e) {
+		// var id = "img-" + imageCount;
+		// $("#image-container").append(CreateImageBlock(e.target.result, id));
+		
+		// send post request
+		$.post( "", { method: 'cropfromupload', image: e.target.result })
+			.done(function( data ) {
+				console.log(data);
+				if (data.success) { // success
+					var newHtml = '<img class="edit-image selected" src="' + data.image + '">';
+					$(".edit-image").removeClass("selected");
+					$("#image-container").append(newHtml);
+					$("input[name=kitimage").val("");
+				} else { // failure
+					alert(data.error);
+				}
+			}, "json");
+	}
+	*/
+
+	reader.readAsDataURL(this.files[0]);
+});
+
+// image from URL
+$("#image-from-url-button").click(function() {
+	// send post request
+	// toDataURL($("#image-from-url").val(), function(dataUrl) {
+	// 	console.log('RESULT:', dataUrl)
+	// 	$.post( "", { method: 'cropfromupload', image: dataUrl })
+	// 	.done(function( data ) {
+	// 		console.log(data);
+	// 		if (data.success) { // success
+	// 			var newHtml = '<img class="edit-image" src="' + data.image + '">';
+	// 			$("#image-container").append(newHtml);
+	// 		} else { // failure
+	// 			alert(data.error);
+	// 		}
+	// 	}, "json");
+	// })
+
+	$.post("", { method: "cropfromurl", image: $("#image-from-url").val() }).done(function(data) {
+		console.log(data);
+		if (data.success) {
+			// success
+			var newHtml = '<img class="edit-image selected" src="' + data.image + '" data-kitimage="' + $("#image-from-url").val() + '">';
+			$(".edit-image").removeClass("selected");
+			$("#image-container").append(newHtml);
+			$("input[name=kitimage").val($("#image-from-url").val());
+		} else {
+			// failure
+			alert(data.error);
+		}
+	}, "json");
+});
+
+$("#image-container").on("click", ".edit-image", function() {
+	$(".edit-image").removeClass("selected");
+	$(this).addClass("selected");
+	$("input[name=kitimage").val($(this).attr("data-kitimage"));
+});
+
+function toDataURL(src, callback, outputFormat) {
+	// var img = new Image();
+	var img = document.getElementById("test-img");
+	// var img = document.createElement('IMG');
+	img.crossOrigin = "Anonymous";
+	img.onload = function() {
+		var canvas = document.createElement("CANVAS");
+		var ctx = canvas.getContext("2d");
+		var dataURL;
+		canvas.height = this.naturalHeight;
+		canvas.width = this.naturalWidth;
+		ctx.drawImage(this, 0, 0);
+		dataURL = canvas.toDataURL(outputFormat);
+		callback(dataURL);
+	};
+	img.src = src;
+	if (img.complete || img.complete === undefined) {
+		img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+		img.src = src;
+	}
+}
+
+function DeleteKit(id) {
+	event = event || window.event;
+	var source = event.target || event.srcElement;
+	var name = $(source).attr("data-name") ? $(source).attr("data-name") : id;
+	if (confirm("Are you sure you want to delete kit '" + name + "'?")) {
+		$.post("", { method: "deletekit", id: id }).done(function(data) {
+			console.log(data);
+			if (data.success) {
+				// success
+				alert("Successfully deleted kit.");
+				window.location.href = document.URL;
+			} else {
+				// failure
+				alert(data.error);
+			}
+		}, "json");
+	}
+}

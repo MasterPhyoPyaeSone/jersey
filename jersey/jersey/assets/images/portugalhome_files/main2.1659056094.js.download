@@ -1,0 +1,432 @@
+function InitializeRatings() {
+  // console.log("Initializing ratings");
+  // star rating
+  $(".rating-container").each(function (e) {
+    var container = this;
+    var content = $(container).html();
+    var id = $(container).find(".rating").attr("data-id");
+    var disabled = false;
+
+    if (window.localStorage.getItem("voted_" + id) !== null) {
+      disabled = true;
+      $(container).find(".rating").addClass("disabled");
+      $(container).find(".rating").prop("title", vote_text["already"]);
+    }
+
+    $(container).on("click", ".rating > button", function (e) {
+      e.preventDefault();
+      if (!disabled) {
+        var rating = $(this).attr("data-rating");
+
+        var confirmInput = document.createElement("div");
+        confirmInput.className = "confirm-input-container";
+        confirmInput.innerHTML = `
+          <div>Confirm rating - ${rating} stars?</div>
+          <div>
+            <button class="sm-button sm-button-primary" id="button-ok">OK</button>
+            <button class="sm-button" id="button-cancel">Cancel</button>
+          </div>
+          `;
+        $(container).html(confirmInput);
+
+        $("#button-ok").click(function () {
+          $(container).off("mouseleave");
+          $.post("/handlers/Rating.php", { id: id, rating: rating }).done(function (data) {
+            $(container).html(content);
+
+            // console.log(data);
+
+            if (!data.success) {
+              // error
+              // console.log(data);
+              // console.log(data.error);
+            } else {
+              // console.log(data);
+              if (typeof app !== "undefined" && app.showStatus) {
+                app.showStatus("Thanks for your vote!");
+                // app.getNext();
+              }
+              // successful
+              $(container).find(".rating").prop("title", vote_text["already"]);
+              window.localStorage.setItem("voted_" + id, 1);
+              disabled = true;
+              $(container).find("#votes").text(data.votes);
+              $(container)
+                .find("#vote-text")
+                .text(vote_text[data.votes == 1 ? "singular" : "plural"]);
+              $(container).find("#rating").text(data.rating.toFixed(1).replace(".", vote_text["decimal_separator"]));
+              $(container).find(".rating").addClass("disabled");
+              disabled = true;
+              $(container).find("#rating-details-no").css("display", "none");
+              $(container).find(".rating-details-meta").css("display", "");
+              $(container)
+                .find(".rating > button > svg")
+                .each(function () {
+                  var val = parseInt($(this).parent().attr("data-rating"));
+                  $(this)
+                    .find(".full")
+                    .css("fill", val <= data.rating ? "" : "none");
+                  $(this)
+                    .find(".half")
+                    .css("fill", val - 0.5 <= data.rating ? "" : "none");
+
+                  // if (data.rating >= val) {
+                  //   $(this).text("★");
+                  // } else {
+                  //   $(this).text("☆");
+                  // }
+                });
+            }
+          });
+        });
+        $("#button-cancel").click(function () {
+          $(container).html(content);
+        });
+      }
+    });
+
+    $(container).on("mouseenter", ".rating:not(.disabled) > button", function () {
+      var rating = $(this).attr("data-rating");
+      $(container)
+        .find(".rating > button > svg")
+        .each(function () {
+          var val = $(this).parent().attr("data-rating");
+          $(this)
+            .find(".full")
+            .css("fill", rating < val ? "none" : "");
+          $(this).find(".half").css("fill", "none");
+        });
+      // $(".rating > svg").text("☆");
+      $(container)
+        .find(".rating-details")
+        .text(rating + "/5");
+    });
+    $(container).on("mouseleave", ".rating:not(.disabled)", function () {
+      $(container).html(content);
+    });
+  });
+}
+
+// decades
+if (document.querySelector(".decade-container") != null) {
+  var first = document.querySelector(".anchor").name;
+  var fixed = false;
+  var select = document.querySelector(".decade-container-dd");
+  var intersecting = [];
+
+  function callback(entries, observer) {
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].isIntersecting) {
+        intersecting.push(entries[i].target.name);
+        select.value = entries[i].target.name;
+      } else {
+        var index = intersecting.findIndex(function (el) {
+          return el === entries[i].target.name;
+        });
+        if (index > -1) {
+          intersecting.splice(index, 1);
+        }
+      }
+    }
+    // desc sort
+    intersecting.sort(function (a, b) {
+      return b - a;
+    });
+    if (intersecting.length > 0) {
+      select.value = intersecting[0];
+      $(".decade-container a").removeClass("primary");
+      $(".decade-container a[href='#" + intersecting[0] + "']").addClass("primary");
+      // new url
+      var url_new = document.URL.split("#")[0] + (intersecting[0] != first ? "#" + intersecting[0] : "");
+      // console.log(url_new);
+      // console.log(document.URL);
+      if (document.URL != url_new) history.replaceState({}, "", url_new);
+    }
+  }
+
+  var observer = new IntersectionObserver(callback, {
+    rootMargin: "0px",
+    threshold: 0,
+  });
+
+  function CheckFixed() {
+    var top = document.querySelector(".decade-container").getBoundingClientRect().top;
+
+    if (top == 40) {
+      if (!fixed) {
+        $(".decade-container").addClass("fixed");
+        fixed = true;
+      }
+    } else if (fixed) {
+      $(".decade-container").removeClass("fixed");
+      fixed = false;
+    }
+  }
+
+  $(window).scroll(function () {
+    CheckFixed();
+  });
+
+  $(".anchor").each(function () {
+    observer.observe(this);
+  });
+
+  CheckFixed();
+}
+
+// top flop show more
+$("#topflop-showmore").click(function () {
+  var container = $(this).closest(".content-c").find(".topflop-section");
+  if ($(container).hasClass("expanded")) {
+    $(container).removeClass("expanded");
+    $(this).removeClass("expanded");
+  } else {
+    $(container).addClass("expanded");
+    $(this).addClass("expanded");
+  }
+});
+
+$(".topflop-tabs > button").click(function () {
+  $(this).siblings().removeClass("active");
+  $(this).addClass("active");
+  switch ($(this).text()) {
+    case "Top":
+      $(this).closest(".content-c").find("#top").css("display", "initial");
+      $(this).closest(".content-c").find("#flop").css("display", "none");
+      break;
+    case "Flop":
+      $(this).closest(".content-c").find("#top").css("display", "none");
+      $(this).closest(".content-c").find("#flop").css("display", "initial");
+      break;
+  }
+});
+
+$(".expand-view").click(function () {
+  $(this).parent().addClass("expanded");
+});
+
+var collectionToggle;
+if (document.getElementById("collection-toggle")) {
+  collectionToggle = new Vue({
+    el: "#collection-toggle",
+    template: `
+    <template v-if="!loggedIn">
+      <a class="button" :href="'/account/login.php?redir=' + encodeURIComponent(document.URL)">Log in to add to collection</a>
+    </template>
+    <button v-else class="button collection-button" @click="toggle" @mouseover="hovered = true" @mouseleave="hovered = false">
+      <template v-if="inCollection && hovered">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+        </svg>
+        <span>Remove</span>
+      </template>
+      <template v-else-if="inCollection && !hovered">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+        <span>In collection</span>
+      </template>
+      <span v-else>Add to collection</span>
+    </button>
+    `,
+    data() {
+      return {
+        inCollection: inCollection,
+        idkit: idkit,
+        loggedIn,
+        hovered: false,
+      };
+    },
+    methods: {
+      toggle() {
+        if (this.inCollection) {
+          fetch(`/api/collection.php?idkit=${this.idkit}&type=collection`, {
+            method: "delete",
+          })
+            .then((res) => res.json())
+            .then((json) => {
+              if (json.success) {
+                this.inCollection = !this.inCollection;
+              } else {
+                // TODO: show error message
+              }
+            })
+            .catch(() => {
+              // TODO: show error message
+            });
+        } else {
+          var formData = new FormData();
+          formData.append("idkit", this.idkit);
+          formData.append("type", "collection");
+          fetch("/api/collection.php", {
+            method: "post",
+            body: formData,
+          })
+            .then((res) => res.json())
+            .then((json) => {
+              if (json.success) {
+                this.inCollection = !this.inCollection;
+              } else {
+                // TODO: show error message
+              }
+            })
+            .catch(() => {
+              // TODO: show error message
+            });
+        }
+      },
+    },
+  });
+}
+
+var wishlistToggle;
+if (document.getElementById("wishlist-toggle")) {
+  wishlistToggle = new Vue({
+    el: "#wishlist-toggle",
+    template: `
+    <template v-if="!loggedIn">
+      <a class="button" :href="'/account/login.php?redir=' + encodeURIComponent(document.URL)">Log in to add to wishlist</a>
+    </template>
+    <button v-else class="button collection-button" @click="toggle" @mouseover="hovered = true" @mouseleave="hovered = false">
+      <template v-if="inCollection && hovered">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+        </svg>
+        <span>Remove</span>
+      </template>
+      <template v-else-if="inCollection && !hovered">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+        <span>On wishlist</span>
+      </template>
+      <span v-else>Add to wishlist</span>
+    </button>
+    `,
+    data() {
+      return {
+        inCollection: inWishlist,
+        idkit: idkit,
+        loggedIn,
+        hovered: false,
+      };
+    },
+    methods: {
+      toggle() {
+        if (this.inCollection) {
+          fetch(`/api/collection.php?idkit=${this.idkit}&type=wishlist`, {
+            method: "delete",
+          })
+            .then((res) => res.json())
+            .then((json) => {
+              if (json.success) {
+                this.inCollection = !this.inCollection;
+              } else {
+                // TODO: show error message
+              }
+            })
+            .catch(() => {
+              // TODO: show error message
+            });
+        } else {
+          var formData = new FormData();
+          formData.append("idkit", this.idkit);
+          formData.append("type", "wishlist");
+          fetch("/api/collection.php", {
+            method: "post",
+            body: formData,
+          })
+            .then((res) => res.json())
+            .then((json) => {
+              if (json.success) {
+                this.inCollection = !this.inCollection;
+              } else {
+                // TODO: show error message
+              }
+            })
+            .catch(() => {
+              // TODO: show error message
+            });
+        }
+      },
+    },
+  });
+}
+
+function toggleCollection(e) {
+  if (!user) {
+    location.href = "/account/login.php?redir=" + location.href;
+  } else {
+    var target = e.target;
+    var id = target.dataset.id;
+    var inCollection = target.dataset.inCollection;
+    if (inCollection !== "") {
+      fetch(`/api/collection.php?idkit=${id}&type=collection`, {
+        method: "delete",
+      })
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success) {
+            target.classList.remove("active");
+            target.dataset.inCollection = "";
+          } else {
+            // TODO: show error message
+          }
+        })
+        .catch(() => {
+          // TODO: show error message
+        });
+    } else {
+      var formData = new FormData();
+      formData.append("idkit", id);
+      formData.append("type", "collection");
+      fetch("/api/collection.php", {
+        method: "post",
+        body: formData,
+      })
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success) {
+            target.classList.add("active");
+            target.dataset.inCollection = id;
+          } else {
+            // TODO: show error message
+          }
+        })
+        .catch(() => {
+          // TODO: show error message
+        });
+    }
+  }
+}
+
+if (lazyLoadInstance) {
+  lazyLoadInstance.update();
+}
+
+InitializeRatings();
+
+setInterval(function () {
+  // change symbol
+  var styles = ["half", "harlequin", "boca", "hoops", "center_stripe"];
+  var possible = [];
+
+  var styleCurrent = $("#logo").attr("data-current");
+
+  styles.forEach(function (el) {
+    if (el != styleCurrent) {
+      possible.push(el);
+    }
+  });
+
+  var styleNew = possible[Math.floor(Math.random() * possible.length)];
+
+  // set current
+  $("#logo")
+    .find("#" + styleCurrent)
+    .css("opacity", 0);
+  $("#logo")
+    .find("#" + styleNew)
+    .css("opacity", 1);
+  $("#logo").attr("data-current", styleNew);
+}, 2500);

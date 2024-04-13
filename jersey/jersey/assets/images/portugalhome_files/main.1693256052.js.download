@@ -1,0 +1,660 @@
+function getParameterByName(name, url) {
+  if (!url) url = window.location.href;
+  name = name.replace(/[\[\]]/g, "\\$&");
+  var regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)"),
+    results = regex.exec(url);
+  if (!results) return null;
+  if (!results[2]) return "";
+  return decodeURIComponent(results[2].replace(/\+/g, " "));
+}
+
+var lazyLoadInstance = new LazyLoad({
+  elements_selector: ".lazyload",
+  callback_error(el) {
+    if (el.dataset?.srcLight && el.dataset.srcLight !== "" && el.src !== el.dataset.srcLight) {
+      el.src = el.dataset.srcLight;
+    } else if (el.dataset?.srcError && el.dataset.srcError !== "") {
+      el.src = el.dataset.srcError;
+    } else {
+      el.src = "/img/no-image.jpg";
+    }
+  },
+});
+
+function ResetLazyLoad() {
+  [...document.querySelectorAll(".lazyload")].forEach((el) => {
+    LazyLoad.resetStatus(el);
+  });
+}
+
+function UpdateLazyLoad() {
+  [...document.querySelectorAll(".content-container .lazyload")].forEach((el) => {
+    if (el.dataset?.srcDark && el.dataset?.srcLight && el.dataset?.srcDark !== "" && el.dataset?.srcLight !== "") {
+      el.dataset.src = theme === "dark" ? el.dataset.srcDark : el.dataset.srcLight;
+    }
+  });
+  ResetLazyLoad();
+  lazyLoadInstance.update();
+}
+
+Vue.component("navigation-sections", {
+  template: `
+  <div class="navigation" id="navigation" @keydown="handleNavigationKeyDown">
+      <input ref="topsearch" class="topsearch" type="text" @input="debouncedLoad" :placeholder="$root.phrases.search" v-model="filter" @click="$event.target.select()">
+      <div class="navigation-container">
+          <span class="navigation-search-status" v-if="isLoading">Loading...</span>
+          <span class="navigation-search-status" v-else-if="isError">An error occured.</span>
+          <span class="navigation-search-status" v-else-if="noResults">No results.</span>
+          <navigation-section v-else-if="searchItems" :navigation="null" :favorites="null" :search-items="searchItems" :is-search="true"></navigation-section>
+          <navigation-section v-else v-for="section in sections" :navigation="section" :favorites="favorites[section.key]" :is-search="false"></navigation-section>
+      </div>
+  </div>
+  `,
+  props: ["sections", "favorites"],
+  data() {
+    return {
+      timeout: null,
+      filter: "",
+      isLoading: false,
+      isError: false,
+      isSearch: false,
+      searchItems: null,
+      // searchItems: {
+      //   brands: null,
+      //   teams: null,
+      //   leagues: null,
+      // },
+      homepageUrl: homepageUrl,
+    };
+  },
+  computed: {
+    noResults() {
+      return this.searchItems && !this.searchItems?.length;
+    },
+  },
+  methods: {
+    load() {
+      // this.searchItems = {
+      //     brands: null,
+      //     teams: null,
+      //     leagues: null,
+      // }
+
+      // if (!this.navigation?.apiUrl) return;
+
+      if (this.filter.length < 2) {
+        this.isSearch = false;
+        this.searchItems = null;
+        // this.searchItems = {
+        //   brands: null,
+        //   teams: null,
+        //   leagues: null,
+        // };
+        return;
+      }
+
+      this.isSearch = true;
+      // this.isLoading = true;
+      this.isError = false;
+
+      fetch(`${this.homepageUrl}api/search.php?filter=${this.filter}`)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success) {
+            // this.isLoading = false;
+            this.searchItems = json.data;
+          } else {
+            this.isError = true;
+          }
+        })
+        .catch(() => {
+          this.isError = true;
+        });
+    },
+    debouncedLoad() {
+      if (this.filter.length < 2) {
+        this.isSearch = false;
+        this.searchItems = null;
+        // this.searchItems = {
+        //   brands: null,
+        //   teams: null,
+        //   leagues: null,
+        // };
+        return;
+      }
+
+      clearTimeout(this.timeout);
+      this.timeout = setTimeout(this.load, 150);
+    },
+    changeFocus(step) {
+      let index;
+      const anchors = [...document.querySelectorAll(".navigation-section a")];
+      const activeElement = document.activeElement;
+      if (activeElement === this.$refs.topsearch) {
+        index = -1 + step;
+      } else if (activeElement.tagName === "A") {
+        anchors.forEach((t, i) => {
+          if (t === activeElement) {
+            index = i + step;
+          }
+        });
+      }
+      if (index !== undefined) {
+        if (index > anchors.length - 1) index = -1;
+        if (index < -1) index = anchors.length - 1;
+
+        if (index === -1) {
+          this.$refs.topsearch.focus({ focusVisible: true });
+        } else {
+          if (index > -1 && index < anchors.length) {
+            anchors[index].focus({ focusVisible: true });
+          }
+        }
+      }
+    },
+    handleNavigationKeyDown(e) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        this.changeFocus(1);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        this.changeFocus(-1);
+      }
+    },
+    handleKeyDown(e) {
+      if (e.key === "/" && e.target != this.$refs.topsearch) {
+        this.$refs.topsearch.select();
+        e.preventDefault();
+      }
+    },
+  },
+  updated() {
+    lazyLoadInstance.update();
+  },
+  mounted() {
+    document.addEventListener("keydown", this.handleKeyDown);
+  },
+});
+
+function checkIfFileExists(url) {
+  return new Promise((resolve, reject) => {
+    fetch(url)
+      .then((res) => {
+        if (res.ok) resolve(true);
+        else resolve(false);
+      })
+      .catch(() => {
+        resolve(false);
+      });
+  });
+}
+
+Vue.component("navigation-item", {
+  template: `
+    <a :href="item.url">
+      <img v-if="hasLoadedImage || !isFavoriteSection" class="lazyload" :class="{isplayer: item.is_head_image}" :src="logoNotFoundImg" :data-src-error="logoNotFoundImg" :data-src="imageUrl" :data-src-dark="imageUrlDark">
+      <img v-else :src="logoNotFoundImg">
+      <span>{{ item.name }}</span>
+      <button class="navigation-favorite-btn" :class="{active: isFavorite}" @click.prevent="favorite" v-if="!isMain">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+        </svg>
+      </button>
+    </a>
+    `,
+  props: ["item", "section", "isFavoriteSection"],
+  data() {
+    return {
+      logoNotFoundImg,
+      // imageUrlDark: null,
+      hasLoadedImage: false,
+    };
+  },
+  computed: {
+    imageUrl() {
+      if (this.isFavoriteSection && !this.hasLoadedImage) return;
+
+      return this.isDarkMode && this.imageUrlDark ? this.imageUrlDark : this.imageUrlLight;
+    },
+    imageUrlDark() {
+      if (this.item.is_head_image) return this.item.image_url;
+
+      if (this.item.image_url_dark) return this.item.image_url_dark;
+
+      if (this.item.image_url_dark === null || this.item.image_url_dark === "") return null;
+
+      return null;
+    },
+    imageUrlLight() {
+      if (this.item.image_url) return this.item.image_url;
+
+      if (this.item.image_url === null) return this.logoNotFoundImg;
+
+      if (this.item.id) return `/static/logos/teams/${this.item.id}.png`;
+
+      return `/static/logos/misc/${this.item.name}.png`;
+    },
+    isDarkMode() {
+      return this.$root?.theme === "dark";
+    },
+    favorites() {
+      return this.$root.favorites[this.section];
+    },
+    mainItems() {
+      return this.$root.sections.find((el) => el.key == this.section)?.items;
+    },
+    isMain() {
+      if (!this.mainItems) return;
+
+      return this.mainItems.findIndex((el) => el.name == this.item.name) > -1;
+    },
+    isFavorite() {
+      if (!this.favorites) return false;
+
+      return this.favorites.findIndex((el) => el.name == this.item?.name) > -1;
+    },
+  },
+  methods: {
+    favorite() {
+      this.$emit("favorite");
+    },
+    async loadImageUrlDark() {
+      if (this.item.is_head_image) return this.item.image_url;
+
+      if (this.item.image_url_dark === null || this.item.image_url_dark === "") return null;
+
+      if (this.item.image_url_dark) return this.item.image_url_dark;
+
+      if (this.item.id) {
+        let urlTemp = `/static/logos/teams/${this.item.id}_l.png`;
+        return (await checkIfFileExists(urlTemp)) ? urlTemp : null;
+      } else {
+        let urlTemp = `/static/logos/misc/${this.item.name}_l.png`;
+        return (await checkIfFileExists(urlTemp)) ? urlTemp : null;
+      }
+    },
+    loadImageUrls() {
+      if (!this.isFavoriteSection) return;
+
+      let apiUrl = `${this.$root.homepageUrl}api/get-logo.php`;
+      if (this.section === "teams") {
+        apiUrl += `?type=team&id=${this.item.id}`;
+      } else if (this.section === "players") {
+        apiUrl += `?type=player&name=${this.item.name_nml}`;
+      } else {
+        apiUrl += `?type=default&name=${this.item.name}`;
+      }
+      fetch(apiUrl)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success !== false) {
+            this.item.image_url = json.image_url;
+            this.item.image_url_dark = json.image_url_dark;
+            if (json.is_head_image !== undefined) {
+              this.item.is_head_image = json.is_head_image;
+            }
+            console.log(this.item);
+          }
+          this.hasLoadedImage = true;
+        })
+        .catch(() => {});
+    },
+  },
+  async created() {
+    this.loadImageUrls();
+    // this.imageUrlDark = await this.loadImageUrlDark();
+  },
+  updated() {
+    lazyLoadInstance.update();
+  },
+});
+
+Vue.component("navigation-section", {
+  template: `
+  <div class="navigation-section">
+      <h3 v-if="hasResults">{{ navigation?.name }}</h3>
+      <template v-if="!isSearch">
+          <navigation-item v-for="item in navigation.items" :key="item.id" :item="item" :section="navigation.key" @favorite="favorite(item)" />
+          <navigation-item v-for="item in favorites" :key="item.id" :item="item" :section="item.type" :is-favorite-section="true" @favorite="favorite(item)" />
+      </template>
+      <template v-else>
+          <span class="navigation-search-status" v-if="isLoading">Loading...</span>
+          <template v-else-if="searchItems && hasResults">
+              <span class="navigation-search-status" v-if="searchItems.length === 0">No results</span>
+              <navigation-item v-else v-for="item in searchItems" :key="item.name" :item="item" :section="item.type" @favorite="favorite(item)" />
+          </template>
+      </template>
+  </div>
+  `,
+  props: ["navigation", "searchItems", "isSearch", "favorites"],
+  data() {
+    return {
+      logoNotFoundImg,
+      timeout: null,
+      filter: "",
+      isLoading: false,
+      isError: false,
+      // searchItems: null,
+    };
+  },
+  methods: {
+    load() {
+      if (this.isLoading) return;
+
+      this.searchItems = null;
+
+      if (!this.navigation?.apiUrl) return;
+
+      if (this.filter.length < 4) return;
+
+      console.log(this.filter);
+      console.log(this.navigation.apiUrl);
+
+      this.isLoading = true;
+      this.isError = false;
+
+      fetch(`${this.navigation.apiUrl}?filter=${this.filter}`)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success) {
+            console.log({
+              json,
+            });
+            this.isLoading = false;
+            this.searchItems = json.data;
+          } else {
+            this.isError = true;
+          }
+        })
+        .catch(() => {
+          this.isError = true;
+        });
+    },
+    debouncedLoad() {
+      clearTimeout(this.timeout);
+      this.timeout = setTimeout(this.load, 200);
+    },
+    checkIfMain(section, item) {
+      var items = this.$root.sections.find(function (el) {
+        return el.key == section;
+      })?.items;
+      if (!items) return true;
+
+      return (
+        items.findIndex(function (el) {
+          return el.name == item.name;
+        }) > -1
+      );
+    },
+    checkIfActive(section, item) {
+      var favorites = this.$root.favorites[section];
+      if (!favorites) return false;
+
+      return (
+        favorites.findIndex(function (el) {
+          return el.name == item.name;
+        }) > -1
+      );
+    },
+    favorite(item) {
+      // e.preventDefault();
+      var key = item.type;
+      // this.navigation.key;
+      if (!this.$root.favorites[key]) {
+        this.$root.favorites[key] = [];
+      }
+      var index = this.$root.favorites[key].findIndex(function (el) {
+        return el.name == item.name;
+      });
+      var newItem = JSON.parse(JSON.stringify(item));
+      newItem.url = newItem.url.replace(/^\/[a-z]{2}\//, "/");
+      if (index > -1) {
+        this.$root.favorites[key].splice(index, 1);
+      } else {
+        // only add if not yet there
+        this.$root.favorites[key].push(newItem);
+      }
+      // save to localStorage
+      this.$root.storeFavorites();
+    },
+  },
+  computed: {
+    // isSearch() {
+    //     return this.filter.length > 3;
+    // }
+    hasResults() {
+      return !this.isSearch || this.searchItems?.length > 0;
+    },
+  },
+  updated() {
+    lazyLoadInstance.update();
+  },
+});
+
+Vue.component("site-icon", {
+  template: `
+  <div class="site-icon-container">
+    <svg v-if="name === 'Football'" version="1.1" viewBox="0 0 752 752" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+      <path d="m534.36 220.61c-41.438-42.922-97.676-66.598-158.36-66.598-60.676 0-116.91 23.676-158.35 66.598-41.438 41.438-63.637 97.676-63.637 155.39 0 57.719 22.199 113.96 63.637 155.39 41.438 42.918 97.676 66.598 158.35 66.598s116.91-23.68 158.36-66.598c41.438-41.438 63.637-97.676 63.637-155.39 0-57.715-22.199-113.95-63.637-155.39zm22.199 88.793-76.957 22.199-88.797-62.156v-85.836c45.879 2.9609 90.277 23.68 122.84 57.719 19.238 19.238 32.559 42.918 42.918 68.074zm-128.75 140.6h-103.6l-32.559-94.715 84.355-59.199 84.355 59.199zm-189.43-208.67c32.559-34.039 76.957-53.277 122.84-57.719v85.836l-88.797 62.156-76.957-23.68c8.8789-23.676 23.68-47.355 42.918-66.594zm-54.758 134.67c0-13.32 1.4805-25.16 4.4414-38.477l73.996 23.68 35.52 105.07-44.398 57.719c-4.4414-4.4414-8.8789-8.8789-13.32-13.32-37-37-56.238-84.355-56.238-134.68zm93.234 164.27 48.84-60.676h105.07l47.359 59.199c-29.598 19.238-65.117 29.598-102.12 29.598-35.516 0-69.555-10.359-99.156-28.121zm236.79-29.598-11.84 11.84-45.879-57.719 34.039-103.6 75.477-22.199c2.9609 11.84 4.4414 25.16 4.4414 38.477-1.4805 48.844-20.719 96.199-56.238 133.2z"/>
+    </svg>
+    <svg v-if="name === 'Basketball'" version="1.1" viewBox="0 0 752 752" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+      <path d="m532.88 219.13c-41.438-41.441-97.676-65.117-156.88-65.117h-2.9609c-59.199 0-113.96 23.68-153.91 65.117-41.438 41.438-65.113 96.195-65.113 153.91 0 60.676 22.199 116.91 65.117 159.83 41.438 41.438 97.676 65.117 156.87 65.117h2.9609c59.199 0 113.96-23.68 153.91-65.117 41.438-41.438 63.637-96.195 65.117-155.39 0-59.195-22.199-115.43-65.117-158.35zm-168.71 349.27c-1.4766 0 0 0 0 0h-2.9609c-44.398-2.9609-78.438-19.238-109.52-45.879l270.83-270.83c26.641 31.078 41.438 65.117 44.398 109.52v2.9609c-53.277 4.4414-102.12 26.641-139.11 63.637-37 38.477-59.199 87.316-63.641 140.59zm-179.07-176.11v0-4.4414c53.277-4.4414 102.12-26.641 139.11-63.637 37-38.477 59.199-87.316 63.637-140.59h2.9609 2.9609c39.957 2.9609 76.957 19.238 106.55 45.879l-270.83 272.31c-26.641-31.078-41.438-69.559-44.398-109.52zm54.758-152.43c32.559-32.559 73.996-51.797 118.39-54.758-4.4414 44.398-23.68 85.836-54.758 118.39-32.559 32.559-73.996 50.316-118.39 54.758 4.4375-44.398 23.68-85.836 54.758-118.39zm272.31 272.31c-32.559 32.559-73.996 51.797-118.39 54.758 4.4414-44.398 23.68-85.836 54.758-118.39 32.559-32.559 73.996-50.316 118.39-54.758-4.4414 44.398-23.68 85.836-54.758 118.39z"/>
+    </svg>
+    <svg v-if="name === 'Hockey'" viewBox="0 0 752 752" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M158 319.876V436.737C158 482.169 255.378 519 375.5 519C495.622 519 593 482.169 593 436.737V319.876M593 315.263C593 360.696 495.622 397.527 375.5 397.527C255.378 397.527 158 360.696 158 315.263C158 269.831 255.378 233 375.5 233C495.622 233 593 269.831 593 315.263Z" stroke="currentColor" stroke-width="30"/>
+    </svg>
+  </div>
+  `,
+  props: ["name"],
+});
+
+Vue.component("site-switch", {
+  template: `
+  <div class="site-switch" :class="{active: modalOpen}">
+    <button @click="handleClick" @keydown.esc="away"><site-icon :name="siteName" /><span>{{ types[siteName] }}</span></button>
+    <div class="account-modal" v-if="modalOpen" v-on-clickaway="away">
+      <ul>
+          <li v-for="site in otherSites"><a :href="site.url"><site-icon :name="site.name" /><span>{{ types[site.name] }}</span></a></li>
+      </ul>
+    </div>
+  </div>
+  `,
+  data() {
+    return {
+      siteKey,
+      types: siteTypes,
+      modalOpen: false,
+      sites: [
+        { name: "Football", url: "https://www.footballkitarchive.com/" },
+        { name: "Basketball", url: "https://basketballjerseyarchive.com/" },
+        { name: "Hockey", url: "https://thekitarchive.com/hockey/" },
+      ],
+    };
+  },
+  computed: {
+    siteName() {
+      if (this.siteKey === "FKA") {
+        return "Football";
+      } else if (this.siteKey === "BJA") {
+        return "Basketball";
+      } else if (this.siteKey === "HJA") {
+        return "Hockey";
+      }
+    },
+    otherSites() {
+      return this.sites.filter((t) => t.name !== this.siteName);
+    },
+  },
+  methods: {
+    handleClick() {
+      this.modalOpen = !this.modalOpen;
+    },
+    away() {
+      this.modalOpen = false;
+    },
+  },
+  mixins: [VueClickaway.mixin],
+});
+
+// const getCookieValue = (key) => {
+//   const cookie = document.cookie;
+//   return cookie.split(";").find((t) => {
+//     const parts = t.trim().split("=");
+//     console.log({ parts });
+//   });
+// };
+
+const setCookieValue = (key, value) => {
+  const d = new Date();
+  d.setTime(d.getTime() + 365 * 24 * 60 * 60 * 1000);
+  const expires = "expires=" + d.toUTCString();
+  document.cookie = key + "=" + value + ";" + expires + ";path=/";
+};
+
+var navigation;
+if (document.getElementById("navigation")) {
+  navigation = new Vue({
+    el: "#navigation",
+    mixins: [VueClickaway.mixin],
+    data() {
+      return {
+        theme,
+        sections: navigationSections,
+        homepageUrl,
+        phrases,
+        menuOpen: window.innerWidth > 767,
+        modalOpen: false,
+        searchOpen: false,
+        user,
+        windowWidth: window.innerWidth,
+        favorites: {
+          leagues: [],
+          brands: [],
+          teams: [],
+          players: [],
+        },
+      };
+    },
+    computed: {
+      isMobile() {
+        return this.windowWidth <= 767;
+      },
+    },
+    methods: {
+      toggleDarkMode() {
+        this.theme = this.theme === "dark" ? "light" : "dark";
+        window.theme = this.theme;
+        document.documentElement.setAttribute("data-theme", this.theme);
+        setCookieValue("theme", this.theme);
+      },
+      away() {
+        this.modalOpen = false;
+      },
+      openSearch() {
+        // document.body.classList.add("search-open");
+        // this.$refs.topsearch.focus();
+      },
+      highlightSearch(e) {
+        if (e.target !== this.$refs.topsearch) return;
+
+        console.log(e);
+
+        if (this.isMobile) {
+          this.searchOpen = true;
+        }
+      },
+      toggleSearch() {
+        if (this.isMobile) {
+          // this.searchOpen = !this.searchOpen;
+          if (!this.menuOpen) this.toggleMenu();
+          Vue.nextTick(() => {
+            this.$refs.sections.$refs.topsearch.focus();
+          });
+        } else {
+          this.$refs.topsearch.focus();
+        }
+      },
+      hideMenu() {
+        if (this.isMobile) {
+          this.menuOpen = false;
+          document.body.style.overflow = null;
+        }
+      },
+      toggleMenu() {
+        console.log("toggling menu");
+        this.menuOpen = !this.menuOpen;
+        if (this.isMobile) {
+          if (this.menuOpen) {
+            document.body.style.overflow = "hidden";
+          } else {
+            document.body.style.overflow = null;
+          }
+        }
+        Vue.nextTick(function () {
+          // DOM updated
+          lazyLoadInstance.update();
+        });
+      },
+      storeFavorites() {
+        let favorites = JSON.parse(JSON.stringify(this.favorites));
+        Object.keys(favorites).forEach((key) => {
+          favorites[key].forEach((item) => {
+            if (item.type) {
+              delete item.type;
+            }
+          });
+        });
+
+        localStorage.setItem("favorites", JSON.stringify(favorites));
+      },
+    },
+    mounted() {
+      lazyLoadInstance.update();
+
+      window.addEventListener("resize", () => {
+        this.windowWidth = window.innerWidth;
+      });
+
+      if (localStorage.getItem("favorites") !== null) {
+        try {
+          this.favorites = JSON.parse(localStorage.getItem("favorites"));
+          Object.keys(this.favorites).forEach((key) => {
+            this.favorites[key].forEach((item) => {
+              item.type = key;
+            });
+          });
+        } catch (error) {
+          console.log("Error loading favorites");
+        }
+      }
+    },
+    watch: {
+      isMobile(newVal) {
+        this.menuOpen = !newVal;
+        if (!newVal) {
+          this.searchOpen = false;
+        }
+        this.$nextTick(function () {
+          // DOM updated
+          lazyLoadInstance.update();
+        });
+      },
+      theme() {
+        this.$nextTick(function () {
+          // DOM updated
+          console.log(this.theme);
+          UpdateLazyLoad();
+          if (typeof chartGenerator === "object") {
+            chartGenerator.DestroyCharts();
+            chartGenerator.InitializeCharts();
+          }
+        });
+      },
+    },
+  });
+}
+
+// service worker
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js");
+}
